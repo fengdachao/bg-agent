@@ -32,7 +32,7 @@ struct GridView: View {
         // 根据不同的指标分配网格
         let cpuCells = Int((cpuUsage / 100.0) * Double(totalCells))
         let memoryCells = Int((memoryUsage / 100.0) * Double(totalCells))
-        let networkCells = Int(((networkIn + networkOut) / 2000.0) * Double(totalCells)) // 假设2000 KB/s为满值
+        let networkCells = Int(((networkIn + networkOut) / 1000.0) * Double(totalCells)) // 假设1000 KB/s为满值
         
         // 组合所有指标
         let totalActiveCells = min(cpuCells + memoryCells + networkCells, totalCells)
@@ -87,7 +87,7 @@ struct DetailedGridView: View {
             
             // 网络网格 (橙色)
             GridRow(
-                usage: min((networkIn + networkOut) / 20.0, 100.0), // 标准化网络使用率
+                usage: min((networkIn + networkOut) / 10.0, 100.0), // 标准化网络使用率
                 color: .orange,
                 gridSize: gridSize,
                 cellSize: cellSize,

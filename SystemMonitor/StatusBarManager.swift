@@ -5,12 +5,18 @@ class StatusBarManager: ObservableObject {
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
     private let systemInfo: SystemInfo
+    private var updateTimer: Timer?
     
     @Published var isMenuVisible = false
     
-    init(systemInfo: SystemInfo = SystemInfo()) {
+    init(systemInfo: SystemInfo) {
         self.systemInfo = systemInfo
         setupStatusBar()
+    }
+    
+    deinit {
+        updateTimer?.invalidate()
+        updateTimer = nil
     }
     
     private func setupStatusBar() {
@@ -26,10 +32,10 @@ class StatusBarManager: ObservableObject {
         }
         
         // 创建弹出窗口
-    setupPopover()
+        setupPopover()
         
         // 定期更新状态栏显示
-        Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+        updateTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             self?.updateStatusBarDisplay()
         }
     }
@@ -109,7 +115,7 @@ class StatusBarManager: ObservableObject {
                 // 根据系统使用率决定颜色
                 let cpuCells = Int((cpuUsage / 100.0) * Double(totalCells))
                 let memoryCells = Int((memoryUsage / 100.0) * Double(totalCells))
-                let networkCells = Int(((networkIn + networkOut) / 2000.0) * Double(totalCells))
+                let networkCells = Int(((networkIn + networkOut) / 1000.0) * Double(totalCells))
                 
                 let totalActiveCells = min(cpuCells + memoryCells + networkCells, totalCells)
                 
@@ -136,9 +142,12 @@ class StatusBarManager: ObservableObject {
     
     func showMainWindow() {
         // 显示主窗口的逻辑
-        if let window = NSApplication.shared.windows.first {
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
+        for window in NSApplication.shared.windows {
+            if window.isMainWindow {
+                window.makeKeyAndOrderFront(nil)
+                NSApplication.shared.activate(ignoringOtherApps: true)
+                break
+            }
         }
     }
     
