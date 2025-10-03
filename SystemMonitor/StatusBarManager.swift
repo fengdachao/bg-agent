@@ -4,11 +4,12 @@ import AppKit
 class StatusBarManager: ObservableObject {
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
-    private var systemInfo: SystemInfo?
+    private let systemInfo: SystemInfo
     
     @Published var isMenuVisible = false
     
-    init() {
+    init(systemInfo: SystemInfo = SystemInfo()) {
+        self.systemInfo = systemInfo
         setupStatusBar()
     }
     
@@ -25,15 +26,11 @@ class StatusBarManager: ObservableObject {
         }
         
         // 创建弹出窗口
-        setupPopover()
-        
-        // 初始化系统信息监控
-        systemInfo = SystemInfo()
-        systemInfo?.startMonitoring()
+    setupPopover()
         
         // 定期更新状态栏显示
-        Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { _ in
-            self.updateStatusBarDisplay()
+        Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            self?.updateStatusBarDisplay()
         }
     }
     
@@ -41,7 +38,13 @@ class StatusBarManager: ObservableObject {
         popover = NSPopover()
         popover?.contentSize = NSSize(width: 300, height: 400)
         popover?.behavior = .transient
-        popover?.contentViewController = NSHostingController(rootView: PopoverContentView(systemInfo: systemInfo))
+        popover?.contentViewController = NSHostingController(
+            rootView: PopoverContentView(
+                systemInfo: systemInfo,
+                onShowMainWindow: { [weak self] in self?.showMainWindow() },
+                onQuit: { [weak self] in self?.quitApplication() }
+            )
+        )
     }
     
     @objc private func statusBarButtonClicked() {
@@ -57,9 +60,8 @@ class StatusBarManager: ObservableObject {
     }
     
     private func updateStatusBarDisplay() {
-        guard let statusItem = statusItem,
-              let button = statusItem.button,
-              let systemInfo = systemInfo else { return }
+      guard let statusItem = statusItem,
+          let button = statusItem.button else { return }
         
         // 创建网格图作为状态栏图标
         let gridImage = createGridImage(
@@ -147,8 +149,9 @@ class StatusBarManager: ObservableObject {
 
 // 弹出窗口内容视图
 struct PopoverContentView: View {
-    @ObservedObject var systemInfo: SystemInfo?
-    @StateObject private var statusBarManager = StatusBarManager()
+    @ObservedObject var systemInfo: SystemInfo
+    let onShowMainWindow: () -> Void
+    let onQuit: () -> Void
     
     var body: some View {
         VStack(spacing: 15) {
@@ -160,76 +163,71 @@ struct PopoverContentView: View {
                 Spacer()
             }
             
-            if let systemInfo = systemInfo {
-                // 快速状态显示
-                VStack(spacing: 10) {
-                    HStack {
-                        Text("CPU:")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Spacer()
-                        Text(String(format: "%.1f%%", systemInfo.cpuUsage))
-                            .font(.caption)
-                            .fontWeight(.medium)
-                            .foregroundColor(.blue)
-                    }
-                    
-                    HStack {
-                        Text("内存:")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Spacer()
-                        Text(String(format: "%.1f%%", systemInfo.memoryUsage))
-                            .font(.caption)
-                            .fontWeight(.medium)
-                            .foregroundColor(.green)
-                    }
-                    
-                    HStack {
-                        Text("网络:")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Spacer()
-                        Text(String(format: "↓%.1f ↑%.1f KB/s", systemInfo.networkIn, systemInfo.networkOut))
-                            .font(.caption)
-                            .fontWeight(.medium)
-                            .foregroundColor(.orange)
-                    }
-                }
-                
-                // 网格图显示
-                VStack {
-                    Text("状态图")
+            // 快速状态显示
+            VStack(spacing: 10) {
+                HStack {
+                    Text("CPU:")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    
-                    DetailedGridView(
-                        cpuUsage: systemInfo.cpuUsage,
-                        memoryUsage: systemInfo.memoryUsage,
-                        networkIn: systemInfo.networkIn,
-                        networkOut: systemInfo.networkOut
-                    )
+                    Spacer()
+                    Text(String(format: "%.1f%%", systemInfo.cpuUsage))
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .foregroundColor(.blue)
                 }
                 
-                Divider()
-                
-                // 操作按钮
-                VStack(spacing: 8) {
-                    Button("显示主窗口") {
-                        statusBarManager.showMainWindow()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                    
-                    Button("退出应用") {
-                        statusBarManager.quitApplication()
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                HStack {
+                    Text("内存:")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text(String(format: "%.1f%%", systemInfo.memoryUsage))
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .foregroundColor(.green)
                 }
-            } else {
-                Text("正在加载系统信息...")
+                
+                HStack {
+                    Text("网络:")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text(String(format: "↓%.1f ↑%.1f KB/s", systemInfo.networkIn, systemInfo.networkOut))
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .foregroundColor(.orange)
+                }
+            }
+            
+            // 网格图显示
+            VStack {
+                Text("状态图")
+                    .font(.caption)
                     .foregroundColor(.secondary)
+                
+                DetailedGridView(
+                    cpuUsage: systemInfo.cpuUsage,
+                    memoryUsage: systemInfo.memoryUsage,
+                    networkIn: systemInfo.networkIn,
+                    networkOut: systemInfo.networkOut
+                )
+            }
+            
+            Divider()
+            
+            // 操作按钮
+            VStack(spacing: 8) {
+                Button("显示主窗口") {
+                    onShowMainWindow()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                
+                Button("退出应用") {
+                    onQuit()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
             }
         }
         .padding()

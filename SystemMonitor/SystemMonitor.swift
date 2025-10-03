@@ -3,7 +3,7 @@ import SwiftUI
 import SystemConfiguration
 
 // 系统监控数据模型
-struct SystemInfo: ObservableObject {
+final class SystemInfo: ObservableObject {
     @Published var cpuUsage: Double = 0.0
     @Published var memoryUsage: Double = 0.0
     @Published var networkIn: Double = 0.0
@@ -20,9 +20,14 @@ struct SystemInfo: ObservableObject {
         startMonitoring()
     }
     
+    deinit {
+        stopMonitoring()
+    }
+    
     func startMonitoring() {
-        timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-            self.updateSystemInfo()
+        guard timer == nil else { return }
+        timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.updateSystemInfo()
         }
     }
     
@@ -51,7 +56,7 @@ struct SystemInfo: ObservableObject {
         }
         
         if kerr == KERN_SUCCESS {
-            let cpuInfo = host_cpu_load_info()
+            var cpuInfo = host_cpu_load_info()
             var numCpuInfo: mach_msg_type_number_t = UInt32(MemoryLayout<host_cpu_load_info>.size) / UInt32(MemoryLayout<integer_t>.size)
             let result: kern_return_t = withUnsafeMutablePointer(to: &cpuInfo) {
                 $0.withMemoryRebound(to: integer_t.self, capacity: Int(numCpuInfo)) {
@@ -68,8 +73,8 @@ struct SystemInfo: ObservableObject {
                 let total = user + system + idle + nice
                 let used = user + system + nice
                 
-                DispatchQueue.main.async {
-                    self.cpuUsage = total > 0 ? (used / total) * 100.0 : 0.0
+                DispatchQueue.main.async { [weak self] in
+                    self?.cpuUsage = total > 0 ? (used / total) * 100.0 : 0.0
                 }
             }
         }
@@ -92,10 +97,10 @@ struct SystemInfo: ObservableObject {
             let totalMemory = ProcessInfo.processInfo.physicalMemory
             let usedMemory = info.resident_size
             
-            DispatchQueue.main.async {
-                self.totalMemory = totalMemory
-                self.usedMemory = usedMemory
-                self.memoryUsage = Double(usedMemory) / Double(totalMemory) * 100.0
+            DispatchQueue.main.async { [weak self] in
+                self?.totalMemory = totalMemory
+                self?.usedMemory = usedMemory
+                self?.memoryUsage = Double(usedMemory) / Double(totalMemory) * 100.0
             }
         }
     }
@@ -120,8 +125,8 @@ struct SystemInfo: ObservableObject {
                 if name.hasPrefix("en") || name.hasPrefix("wlan") || name.hasPrefix("bridge") {
                     if let data = interface.ifa_data {
                         let stats = data.withMemoryRebound(to: if_data.self, capacity: 1) { $0.pointee }
-                        currentIn += stats.ifi_ibytes
-                        currentOut += stats.ifi_obytes
+                        currentIn += UInt64(stats.ifi_ibytes)
+                        currentOut += UInt64(stats.ifi_obytes)
                     }
                 }
             }
@@ -136,9 +141,9 @@ struct SystemInfo: ObservableObject {
             let inDiff = currentIn - previousNetworkIn
             let outDiff = currentOut - previousNetworkOut
             
-            DispatchQueue.main.async {
-                self.networkIn = Double(inDiff) / timeInterval / 1024.0 // KB/s
-                self.networkOut = Double(outDiff) / timeInterval / 1024.0 // KB/s
+            DispatchQueue.main.async { [weak self] in
+                self?.networkIn = Double(inDiff) / timeInterval / 1024.0 // KB/s
+                self?.networkOut = Double(outDiff) / timeInterval / 1024.0 // KB/s
             }
         }
         
