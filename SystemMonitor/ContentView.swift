@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct ContentView: View {
-    @StateObject private var systemInfo = SystemInfo()
+    @ObservedObject var systemInfo: SystemInfo
     @State private var isMinimized = false
     
     var body: some View {
@@ -150,5 +150,5 @@ struct SystemInfoCard: View {
 }
 
 #Preview {
-    ContentView()
+    ContentView(systemInfo: SystemInfo())
 }

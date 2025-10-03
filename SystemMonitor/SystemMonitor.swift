@@ -16,6 +16,10 @@ final class SystemInfo: ObservableObject {
     private var previousNetworkOut: UInt64 = 0
     private var lastNetworkTime: Date = Date()
     
+    // CPU monitoring variables
+    private var previousCpuInfo: host_cpu_load_info?
+    private var lastCpuTime: Date = Date()
+    
     init() {
         startMonitoring()
     }
@@ -37,71 +41,84 @@ final class SystemInfo: ObservableObject {
     }
     
     private func updateSystemInfo() {
-        updateCPUUsage()
-        updateMemoryUsage()
-        updateNetworkUsage()
+        DispatchQueue.global(qos: .background).async { [weak self] in
+            self?.updateCPUUsage()
+            self?.updateMemoryUsage()
+            self?.updateNetworkUsage()
+        }
     }
     
     private func updateCPUUsage() {
-        var info = mach_task_basic_info()
-        var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size)/4
+        var cpuInfo = host_cpu_load_info()
+        var numCpuInfo: mach_msg_type_number_t = UInt32(MemoryLayout<host_cpu_load_info>.size) / UInt32(MemoryLayout<integer_t>.size)
         
-        let kerr: kern_return_t = withUnsafeMutablePointer(to: &info) {
-            $0.withMemoryRebound(to: integer_t.self, capacity: 1) {
-                task_info(mach_task_self_,
-                         task_flavor_t(MACH_TASK_BASIC_INFO),
-                         $0,
-                         &count)
+        let result: kern_return_t = withUnsafeMutablePointer(to: &cpuInfo) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(numCpuInfo)) {
+                host_statistics(mach_host_self(), HOST_CPU_LOAD_INFO, $0, &numCpuInfo)
             }
         }
         
-        if kerr == KERN_SUCCESS {
-            var cpuInfo = host_cpu_load_info()
-            var numCpuInfo: mach_msg_type_number_t = UInt32(MemoryLayout<host_cpu_load_info>.size) / UInt32(MemoryLayout<integer_t>.size)
-            let result: kern_return_t = withUnsafeMutablePointer(to: &cpuInfo) {
-                $0.withMemoryRebound(to: integer_t.self, capacity: Int(numCpuInfo)) {
-                    host_statistics(mach_host_self(), HOST_CPU_LOAD_INFO, $0, &numCpuInfo)
+        if result == KERN_SUCCESS {
+            let now = Date()
+            let timeInterval = now.timeIntervalSince(lastCpuTime)
+            
+            if let previous = previousCpuInfo, timeInterval > 0 {
+                let userDiff = Double(cpuInfo.cpu_ticks.0 - previous.cpu_ticks.0)
+                let systemDiff = Double(cpuInfo.cpu_ticks.1 - previous.cpu_ticks.1)
+                let idleDiff = Double(cpuInfo.cpu_ticks.2 - previous.cpu_ticks.2)
+                let niceDiff = Double(cpuInfo.cpu_ticks.3 - previous.cpu_ticks.3)
+                
+                let totalDiff = userDiff + systemDiff + idleDiff + niceDiff
+                let usedDiff = userDiff + systemDiff + niceDiff
+                
+                // 确保值在合理范围内
+                let cpuUsage = totalDiff > 0 ? min(max((usedDiff / totalDiff) * 100.0, 0.0), 100.0) : 0.0
+                
+                DispatchQueue.main.async { [weak self] in
+                    self?.cpuUsage = cpuUsage
                 }
             }
             
-            if result == KERN_SUCCESS {
-                let user = Double(cpuInfo.cpu_ticks.0)
-                let system = Double(cpuInfo.cpu_ticks.1)
-                let idle = Double(cpuInfo.cpu_ticks.2)
-                let nice = Double(cpuInfo.cpu_ticks.3)
-                
-                let total = user + system + idle + nice
-                let used = user + system + nice
-                
-                DispatchQueue.main.async { [weak self] in
-                    self?.cpuUsage = total > 0 ? (used / total) * 100.0 : 0.0
-                }
-            }
+            previousCpuInfo = cpuInfo
+            lastCpuTime = now
+        } else {
+            // 如果获取CPU信息失败，记录错误但不崩溃
+            print("Failed to get CPU info: \(result)")
         }
     }
     
     private func updateMemoryUsage() {
-        var info = mach_task_basic_info()
-        var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size)/4
+        var vmStats = vm_statistics64()
+        var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64>.size / MemoryLayout<integer_t>.size)
         
-        let kerr: kern_return_t = withUnsafeMutablePointer(to: &info) {
-            $0.withMemoryRebound(to: integer_t.self, capacity: 1) {
-                task_info(mach_task_self_,
-                         task_flavor_t(MACH_TASK_BASIC_INFO),
-                         $0,
-                         &count)
+        let result = withUnsafeMutablePointer(to: &vmStats) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                host_statistics64(mach_host_self(), HOST_VM_INFO64, $0, &count)
             }
         }
         
-        if kerr == KERN_SUCCESS {
+        if result == KERN_SUCCESS {
+            let pageSize = UInt64(vm_page_size)
             let totalMemory = ProcessInfo.processInfo.physicalMemory
-            let usedMemory = info.resident_size
+            let freeMemory = UInt64(vmStats.free_count) * pageSize
+            let activeMemory = UInt64(vmStats.active_count) * pageSize
+            let inactiveMemory = UInt64(vmStats.inactive_count) * pageSize
+            let wiredMemory = UInt64(vmStats.wire_count) * pageSize
+            let compressedMemory = UInt64(vmStats.compressor_page_count) * pageSize
+            
+            let usedMemory = totalMemory - freeMemory
+            
+            // 确保内存使用率在合理范围内
+            let memoryUsage = totalMemory > 0 ? min(max(Double(usedMemory) / Double(totalMemory) * 100.0, 0.0), 100.0) : 0.0
             
             DispatchQueue.main.async { [weak self] in
                 self?.totalMemory = totalMemory
                 self?.usedMemory = usedMemory
-                self?.memoryUsage = Double(usedMemory) / Double(totalMemory) * 100.0
+                self?.memoryUsage = memoryUsage
             }
+        } else {
+            // 如果获取内存信息失败，记录错误但不崩溃
+            print("Failed to get memory info: \(result)")
         }
     }
     
@@ -118,11 +135,16 @@ final class SystemInfo: ObservableObject {
             defer { ptr = ptr?.pointee.ifa_next }
             
             guard let interface = ptr?.pointee else { continue }
-            let addrFamily = interface.ifa_addr.pointee.sa_family
+            
+            // 检查接口是否有效
+            guard let addr = interface.ifa_addr else { continue }
+            let addrFamily = addr.pointee.sa_family
             
             if addrFamily == UInt8(AF_LINK) {
                 let name = String(cString: interface.ifa_name)
-                if name.hasPrefix("en") || name.hasPrefix("wlan") || name.hasPrefix("bridge") {
+                // 只统计主要的网络接口，排除虚拟接口
+                if (name.hasPrefix("en") || name.hasPrefix("wlan") || name.hasPrefix("bridge")) && 
+                   !name.contains("lo") && !name.contains("utun") {
                     if let data = interface.ifa_data {
                         let stats = data.withMemoryRebound(to: if_data.self, capacity: 1) { $0.pointee }
                         currentIn += UInt64(stats.ifi_ibytes)
@@ -137,13 +159,18 @@ final class SystemInfo: ObservableObject {
         let now = Date()
         let timeInterval = now.timeIntervalSince(lastNetworkTime)
         
-        if timeInterval > 0 {
-            let inDiff = currentIn - previousNetworkIn
-            let outDiff = currentOut - previousNetworkOut
+        // 确保时间间隔足够大以避免除零错误
+        if timeInterval > 0.1 {
+            let inDiff = currentIn > previousNetworkIn ? currentIn - previousNetworkIn : 0
+            let outDiff = currentOut > previousNetworkOut ? currentOut - previousNetworkOut : 0
+            
+            // 确保网络速度在合理范围内
+            let networkInSpeed = max(Double(inDiff) / timeInterval / 1024.0, 0.0) // KB/s
+            let networkOutSpeed = max(Double(outDiff) / timeInterval / 1024.0, 0.0) // KB/s
             
             DispatchQueue.main.async { [weak self] in
-                self?.networkIn = Double(inDiff) / timeInterval / 1024.0 // KB/s
-                self?.networkOut = Double(outDiff) / timeInterval / 1024.0 // KB/s
+                self?.networkIn = networkInSpeed
+                self?.networkOut = networkOutSpeed
             }
         }
         

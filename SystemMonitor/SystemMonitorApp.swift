@@ -2,13 +2,20 @@ import SwiftUI
 
 @main
 struct SystemMonitorApp: App {
-    @StateObject private var statusBarManager = StatusBarManager()
+    @StateObject private var systemInfo = SystemInfo()
+    @StateObject private var statusBarManager: StatusBarManager
     @State private var isMainWindowVisible = true
+    
+    init() {
+        let systemInfo = SystemInfo()
+        _systemInfo = StateObject(wrappedValue: systemInfo)
+        _statusBarManager = StateObject(wrappedValue: StatusBarManager(systemInfo: systemInfo))
+    }
     
     var body: some Scene {
         // 主窗口
         WindowGroup {
-            ContentView()
+            ContentView(systemInfo: systemInfo)
                 .onAppear {
                     setupWindowBehavior()
                 }
@@ -58,17 +65,23 @@ struct SystemMonitorApp: App {
     
     private func minimizeToStatusBar() {
         // 隐藏主窗口
-        if let window = NSApplication.shared.windows.first {
-            window.orderOut(nil)
+        for window in NSApplication.shared.windows {
+            if window.isMainWindow {
+                window.orderOut(nil)
+                break
+            }
         }
         isMainWindowVisible = false
     }
     
     private func showMainWindow() {
         // 显示主窗口
-        if let window = NSApplication.shared.windows.first {
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
+        for window in NSApplication.shared.windows {
+            if window.isMainWindow {
+                window.makeKeyAndOrderFront(nil)
+                NSApplication.shared.activate(ignoringOtherApps: true)
+                break
+            }
         }
         isMainWindowVisible = true
     }
@@ -91,8 +104,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if !flag {
             // 如果没有可见窗口，显示主窗口
-            if let window = sender.windows.first {
-                window.makeKeyAndOrderFront(nil)
+            for window in sender.windows {
+                if window.isMainWindow {
+                    window.makeKeyAndOrderFront(nil)
+                    break
+                }
             }
         }
         return true
