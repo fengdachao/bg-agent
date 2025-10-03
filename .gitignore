@@ -1,0 +1,45 @@
+# Xcode
+.DS_Store
+build/
+DerivedData/
+*.xcuserdata/
+xcuserdata/
+*.xccheckout
+*.xcscmblueprint
+
+# Xcode specific
+*.xcuserstate
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+
+# Swift Package Manager
+.build/
+Package.resolved
+
+# CocoaPods
+Pods/
+
+# Carthage
+Carthage/Build/
+
+# Fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots
+
+# macOS
+*.DS_Store
+.AppleDouble
+.LSOverride
+
+# Temporary files
+*.swp
+*~
+
+# Workspace
+SystemMonitor.xcodeproj/xcuserdata/
+SystemMonitor.xcodeproj/project.xcworkspace/
+
+# Ignore the DerivedData folder in home
+/Users/*/Library/Developer/Xcode/DerivedData
