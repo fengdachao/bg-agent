@@ -6,6 +6,8 @@ class StatusBarManager: ObservableObject {
     private var popover: NSPopover?
     private let systemInfo: SystemInfo
     private var updateTimer: Timer?
+    private var lastClickTime: Date = Date()
+    private var clickCount: Int = 0
     
     @Published var isMenuVisible = false
     
@@ -44,6 +46,7 @@ class StatusBarManager: ObservableObject {
         popover = NSPopover()
         popover?.contentSize = NSSize(width: 300, height: 400)
         popover?.behavior = .transient
+        popover?.appearance = NSAppearance(named: .aqua)
         popover?.contentViewController = NSHostingController(
             rootView: PopoverContentView(
                 systemInfo: systemInfo,
@@ -56,11 +59,36 @@ class StatusBarManager: ObservableObject {
     @objc private func statusBarButtonClicked() {
         guard let popover = popover, let statusItem = statusItem else { return }
         
-        if popover.isShown {
-            popover.performClose(nil)
+        let currentTime = Date()
+        let timeSinceLastClick = currentTime.timeIntervalSince(lastClickTime)
+        
+        // 如果距离上次点击时间超过0.5秒，重置点击计数
+        if timeSinceLastClick > 0.5 {
+            clickCount = 1
         } else {
+            clickCount += 1
+        }
+        
+        lastClickTime = currentTime
+        
+        // 延迟处理点击事件，以便检测双击
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.handleClickEvent(clickCount: self?.clickCount ?? 1, popover: popover, statusItem: statusItem)
+        }
+    }
+    
+    private func handleClickEvent(clickCount: Int, popover: NSPopover, statusItem: NSStatusItem) {
+        if clickCount >= 2 {
+            // 双击或更多点击显示主窗口
+            showMainWindow()
+        } else {
+            // 单击显示/隐藏弹出窗口
             if let button = statusItem.button {
-                popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+                if popover.isShown {
+                    popover.performClose(nil)
+                } else {
+                    popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+                }
             }
         }
     }
@@ -232,6 +260,11 @@ struct PopoverContentView: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
                 
+                Text("提示：双击状态栏图标也可显示主窗口")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                
                 Button("退出应用") {
                     onQuit()
                 }
@@ -241,5 +274,7 @@ struct PopoverContentView: View {
         }
         .padding()
         .frame(width: 280, height: 350)
+        .background(Color(NSColor.windowBackgroundColor))
+        .cornerRadius(8)
     }
 }

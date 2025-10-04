@@ -18,6 +18,8 @@ struct SystemMonitorApp: App {
             ContentView(systemInfo: systemInfo)
                 .onAppear {
                     setupWindowBehavior()
+                    // 默认隐藏主窗口
+                    hideMainWindowOnLaunch()
                 }
         }
         .windowStyle(.hiddenTitleBar)
@@ -84,6 +86,13 @@ struct SystemMonitorApp: App {
             }
         }
         isMainWindowVisible = true
+    }
+    
+    private func hideMainWindowOnLaunch() {
+        // 延迟隐藏主窗口，确保窗口已经创建
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            self.minimizeToStatusBar()
+        }
     }
 }
 
