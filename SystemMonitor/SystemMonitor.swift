@@ -106,7 +106,29 @@ final class SystemInfo: ObservableObject {
             let wiredMemory = UInt64(vmStats.wire_count) * pageSize
             let compressedMemory = UInt64(vmStats.compressor_page_count) * pageSize
             
-            let usedMemory = totalMemory - freeMemory
+            // 正确计算已使用内存：总内存 - 空闲内存
+            // 在macOS中，已使用内存包括：active + inactive + wired + compressed
+            let usedMemory = activeMemory + inactiveMemory + wiredMemory + compressedMemory
+            
+            // 验证计算结果的合理性
+            let calculatedTotal = usedMemory + freeMemory
+            if calculatedTotal > totalMemory {
+                // 如果计算的总和超过物理内存，使用更保守的计算方法
+                let usedMemory = totalMemory - freeMemory
+                let memoryUsage = totalMemory > 0 ? min(max(Double(usedMemory) / Double(totalMemory) * 100.0, 0.0), 100.0) : 0.0
+                
+                DispatchQueue.main.async { [weak self] in
+                    self?.totalMemory = totalMemory
+                    self?.usedMemory = usedMemory
+                    self?.memoryUsage = memoryUsage
+                    
+                    // 调试信息：记录回退计算方法
+                    #if DEBUG
+                    print("Memory Debug (Fallback): Total=\(self?.formatBytes(totalMemory) ?? "0"), Used=\(self?.formatBytes(usedMemory) ?? "0"), Usage=\(String(format: "%.1f%%", memoryUsage))")
+                    #endif
+                }
+                return
+            }
             
             // 确保内存使用率在合理范围内
             let memoryUsage = totalMemory > 0 ? min(max(Double(usedMemory) / Double(totalMemory) * 100.0, 0.0), 100.0) : 0.0
@@ -115,6 +137,11 @@ final class SystemInfo: ObservableObject {
                 self?.totalMemory = totalMemory
                 self?.usedMemory = usedMemory
                 self?.memoryUsage = memoryUsage
+                
+                // 调试信息：记录内存计算详情
+                #if DEBUG
+                print("Memory Debug: Total=\(self?.formatBytes(totalMemory) ?? "0"), Used=\(self?.formatBytes(usedMemory) ?? "0"), Usage=\(String(format: "%.1f%%", memoryUsage))")
+                #endif
             }
         } else {
             // 如果获取内存信息失败，记录错误但不崩溃
